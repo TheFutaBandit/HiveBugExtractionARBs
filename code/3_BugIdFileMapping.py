@@ -33,7 +33,13 @@ def main():
     # Configuration
     csv_file = 'datasets/HIVE_ARBIssues.csv'  # Path to your CSV file containing bug IDs
     repo_dir = '../hiveSoftware/hive'  # Path to your cloned Apache Hive repository
-    output_csv = 'datasets/bug_id_file_mapping.csv'  # Output CSV file name
+    output_csv = 'datasets/bug_id_file_mapping.csv'  # Output CSV file path
+
+    # Ensure datasets directory exists (relative to where the script is run)
+    os.makedirs('datasets', exist_ok=True)
+
+    # Print current working directory
+    print("Current Working Directory:", os.getcwd())
 
     # Execute Steps
     bug_ids = load_bug_ids(csv_file)
@@ -41,6 +47,10 @@ def main():
 
     # Create a DataFrame and save it to a CSV file
     results_df = pd.DataFrame(results)
+    
+    # Print output CSV path
+    print("Output CSV Path:", output_csv)
+
     results_df.to_csv(output_csv, index=False)
 
     print(f"\nResults saved to {output_csv}")
