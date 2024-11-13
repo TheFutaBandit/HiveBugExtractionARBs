@@ -31,9 +31,9 @@ def search_bug_ids(bug_ids, repo_dir):
 # Main Function
 def main():
     # Configuration
-    csv_file = 'datasets/HIVE_ARBIssues.csv'  # Path to your CSV file containing bug IDs
-    repo_dir = '../hiveSoftware/hive'  # Path to your cloned Apache Hive repository
-    output_csv = 'datasets/bug_id_file_mapping.csv'  # Output CSV file path
+    csv_file = 'dataset_storm/storm_ARBIssues.csv'  # Path to your CSV file containing bug IDs
+    repo_dir = '../stormSoftware/storm'  # Path to your cloned Apache Hive repository
+    output_csv = 'bug_id_file_mapping.csv'  # Output CSV file path
 
     # Ensure datasets directory exists (relative to where the script is run)
     os.makedirs('datasets', exist_ok=True)

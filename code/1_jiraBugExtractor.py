@@ -7,7 +7,7 @@ counter = 0
 total_results = 0
 batch_size = 1000  # Set the batch size to 1000
 
-csv_file_name = "datasets/HIVE_Closed.csv"
+csv_file_name = "dataset_storm/storm_closed.csv"
 
 with open(csv_file_name, mode='w', newline='', encoding='utf-8') as file:
     writer = csv.writer(file)
@@ -16,7 +16,7 @@ with open(csv_file_name, mode='w', newline='', encoding='utf-8') as file:
     start_at = 0
     while True:
         issues = jira.search_issues(
-            "project = HIVE and status = closed", 
+            "project = STORM and status = closed", 
             startAt=start_at, 
             maxResults=batch_size
         )

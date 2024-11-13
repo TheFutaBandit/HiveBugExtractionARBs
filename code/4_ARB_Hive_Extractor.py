@@ -1,9 +1,9 @@
 import pandas as pd
 
 # Variables for file paths and column names
-bug_file_path = 'datasets/bug_id_file_mapping.csv'  # Path to the file containing Bug_ID and File_Name
-name_file_path = 'datasets/Hive_metrics.csv'  # Path to the file containing the Name column
-output_file_path = 'datasets/ARB_Hive_Metric.csv'  # Path for the output file
+bug_file_path = 'dataset_storm/bug_id_file_mapping.csv'  # Path to the file containing Bug_ID and File_Name
+name_file_path = 'dataset_storm/storm_metrics.csv'  # Path to the file containing the Name column
+output_file_path = 'dataset_storm/ARB_storm_Metric.csv'  # Path for the output file
 
 bug_file_column = 'File_Name'  # Column name for File_Name in the first CSV
 name_file_column = 'Name'  # Column name for Name in the second CSV

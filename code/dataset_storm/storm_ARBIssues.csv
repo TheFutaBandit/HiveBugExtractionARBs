@@ -1,0 +1,750 @@
+Bug_ID,Bug_Summary,Bug_Description
+STORM-4051,Scheduler needs to include acker memory for topology resources,"The scheduler has a bug where acker memory is not considered in the scheduling estimate. The case I found was where a topology should fit on two supervisors, but the cluster has 1 available and 2 blacklisted. The scheduler thinks the topology should fit on one supervisor and fails to schedule, but also fails to release a supervisor from the blacklist, resulting in the topology never getting scheduled.
+
+With this fix, the scheduler properly detects the topology will need to be scheduled on two supervisors and releases one from the blacklist and schedules successfully.
+
+Switched some scheduling logs from trace to debug to make debugging scheduling issues easier."
+STORM-3881,How to dynamically update variable information in memory after the cluster starts storm,"_I want to dynamically update some of the memory information in the Bolt processing logic, but the number and concurrency of Bolts are too large. Another way of thinking, can it be achieved by changing the memory of each worker process?_"
+STORM-3800,Fix Resocue leak due to Files.list and Files.walk,"Files.list and Files.walk will open dir stream, we should close it.
+
+ 
+
+see jdk:
+
+the {[@code|https://github.com/code] try}-with-resources construct should be used to ensure that the
+stream's {[@link|https://github.com/link] Stream#close close} method is invoked after the stream
+operations are completed."
+STORM-3726,JCQueue::overflowQ can use an highly concurrent variant of JCTools, The overflowQ used on https://github.com/apache/storm/blob/7bef73a6faa14558ef254efe74cbe4bfef81c2e2/storm-client/src/jvm/org/apache/storm/utils/JCQueue.java can use the xadd variant on the very last JCTools variant if the use assume an high concurrent usage scenario
+STORM-3713,Possible race condition between zookeeper sync-up and killing topology,"When nimbus re-gains leadership, the leaderCallback will sync-up with zookeeper:
+
+[https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/nimbus/LeaderListenerCallback.java#L106] [https://github.com/apache/storm/blob/master/storm-client/src/jvm/org/apache/storm/cluster/StormClusterStateImpl.java#L212]  
+
+When killing topology, both zookeeper and in-memory assignments map get cleaned up.
+
+[https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L313]  
+
+However, in the syncRemoteAssignments call, it will get the information from zookeeper into stormIds. The after some processing (including deserialization), it will then put it into local in-memory assignments backend. If the zookeeper deletion happens between these two steps, then there will be mismatch between remote zookeeper and local backends.  
+
+
+We found this issue since we observed a NPE when making assignments.
+{code:java}
+2020-11-04 19:56:17.703 o.a.s.d.n.Nimbus timer [ERROR] Error while processing event java.lang.RuntimeException: java.lang.NullPointerException at
+org.apache.storm.daemon.nimbus.Nimbus.lambda$launchServer$17(Nimbus.java:1419) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.StormTimer$1.run(StormTimer.java:110) ~[storm-client-2.3.0.y.jar:2.3.0.y] at org.apache.storm.StormTimer$StormTimerTask.run(StormTimer.java:226) [storm-client-2.3.0.y.jar:2.3.0.y] Caused by: java.lang.NullPointerException at org.apache.storm.daemon.nimbus.HeartbeatCache.getAliveExecutors(HeartbeatCache.java:199) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.aliveExecutors(Nimbus.java:2029) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.computeTopologyToAliveExecutors(Nimbus.java:2109) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.computeNewSchedulerAssignments(Nimbus.java:2272) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.lockingMkAssignments(Nimbus.java:2467) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.mkAssignments(Nimbus.java:2453) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.mkAssignments(Nimbus.java:2397) ~[storm-server-2.3.0.y.jar:2.3.0.y] at org.apache.storm.daemon.nimbus.Nimbus.lambda$launchServer$17(Nimbus.java:1415) ~[storm-server-2.3.0.y.jar:2.3.0.y] ... 2 more 2020-11-04 19:56:17.703 o.a.s.u.Utils timer [ERROR] Halting process: Error while processing event  
+
+{code}
+[https://github.com/apache/storm/blob/fe2f7102e244336e288d26f2dde8089198ee4c33/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L2108]  
+
+The existingAssignment comes from in-memory backend while the topologyToExecutors comes from zookeeper which did not include a deleted topolgy id. [https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L2108] [https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L2111|https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L2108] [https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/HeartbeatCache.java#L199]
+
+So NPE happens.      "
+STORM-3646,Flush only happens on executor main thread,"Flush only happens on executor main thread.
+https://github.com/apache/storm/blob/v2.1.0/storm-client/src/jvm/org/apache/storm/executor/ExecutorTransfer.java#L70-L74
+
+If topologies have their own threads within bolts, and when
+
+{code:java}
+topology.producer.batch.size
+topology.transfer.batch.size
+{code}
+
+are larger than 1, some tuples will be batched and possible never be sent to downstream.
+
+The default value for them is 1. So it is fine when the configs are not explicitly changed. "
+STORM-3637,Looping topology structure can cause backpressure to deadlock,"When you have a topology structure with loops in it (BoltA and BoltB send tuples to each other), it can cause backpressure to deadlock.
+
+The scenario is that BoltA suddenly takes a long time to process a tuple (in our situation, it's doing a database operation). This causes the task input queue to fill up, setting the backpressure flag.
+
+BoltB, which is sending a tuple to BoltA, then cannot send, and the tuple is held in the emit queue. This blocks any tuples behind it, and also stops BoltB from executing. This means the input queue to BoltB will build up, until that backpressure flag is also set - and then when BoltA next wants to send a tuple to BoltB, it will irrevocably deadlock."
+STORM-3622,Race Condition in CachedThreadStatesGaugeSet registered at SystemBolt,"We noticed that with the change in https://github.com/apache/storm/pull/3242, there is a race condition causing NPE.
+{code:java}
+2020-04-14 18:22:12.997 o.a.s.u.Utils Thread-17-__acker-executor[16, 16] [ERROR] Async loop died!
+java.lang.RuntimeException: java.lang.NullPointerException
+ at org.apache.storm.executor.Executor.accept(Executor.java:291) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.utils.JCQueue.consumeImpl(JCQueue.java:131) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.utils.JCQueue.consume(JCQueue.java:111) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:172) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:159) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.utils.Utils$1.run(Utils.java:434) [storm-client-2.2.0.y.jar:2.2.0.y]
+ at java.lang.Thread.run(Thread.java:748) [?:1.8.0_242]
+Caused by: java.lang.NullPointerException
+ at com.codahale.metrics.jvm.ThreadStatesGaugeSet.getThreadCount(ThreadStatesGaugeSet.java:95) ~[metrics-jvm-3.2.6.jar:3.2.6]
+ at com.codahale.metrics.jvm.ThreadStatesGaugeSet.access$000(ThreadStatesGaugeSet.java:20) ~[metrics-jvm-3.2.6.jar:3.2.6]
+ at com.codahale.metrics.jvm.ThreadStatesGaugeSet$1.getValue(ThreadStatesGaugeSet.java:56) ~[metrics-jvm-3.2.6.jar:3.2.6]
+ at org.apache.storm.executor.Executor.addV2Metrics(Executor.java:344) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.executor.Executor.metricsTick(Executor.java:320) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.executor.bolt.BoltExecutor.tupleActionFn(BoltExecutor.java:218) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ at org.apache.storm.executor.Executor.accept(Executor.java:287) ~[storm-client-2.2.0.y.jar:2.2.0.y]
+ ... 6 more
+{code}
+
+
+This is due to a race condition in CachedGauge https://github.com/dropwizard/metrics/blob/v3.2.6/metrics-core/src/main/java/com/codahale/metrics/CachedGauge.java#L49-L53
+
+There are two issues here.
+The first one is STORM-3623. 
+This makes all the executors to get values for all the metrics. So multiple threads will access the same metric.
+
+So the threads gauges are now accessed by multiple threads. But in CachedGauge,
+
+
+{code:java}
+ @Override
+    public T getValue() {
+        if (shouldLoad()) {
+            this.value = loadValue();
+        }
+        return value;
+    }
+{code}
+
+this method is not thread-safe. Two threads can reach to getValue at the same time.
+The first thread reaching shouldLoad knows it needs to reload, so it calls the next line this.value=loadValue()
+The second thread is a little bit late so shouldLoad returns false. Then it returns the value directly.
+
+There is a race condition between first thread calling loadValue() and the second thread returning value.
+
+If the first thread finishes loadValue() first, both values returned to the threads are the same value (and current value). But if the second thread returns earlier, the second thread gets the original value (which is null ), hence NPE.
+
+To summarize, the second issue is CachedThreadStatesGaugeSet is not thread-safe
+
+To fix this NPE, we should avoid using CachedThreadStatesGaugeSet. 
+
+But we still need to fix STORM-3623  to avoid unnecessary computations and redundant metrics."
+STORM-3587,Allow Scheduler futureTask to gracefully exit and register message on timeout,"ResourceAwareScheduler creates a FutureTask with timeout specified in DaemonConfig.
+
+ConstraintSolverStrategy uses the the another configuration variable to determine when to terminate its effort. Limit this value so that it terminates at most slightly before TimeoutException. This graceful exit allows result (and its error) to be available in ResourceAwareScheduler.
+
+ "
+STORM-3540,Pacemaker race condition can cause continual reconnection,Seeing issues with connections to pacemaker with some workers despite pacemaker being up.
+STORM-3519,Change ConstraintSolverStrategy::backtrackSearch to avoid StackOverflowException,"When ConstraintSolverStrategy::backtrackSearch recursively call itself - after approximately 20000 calls, there is a StackOverflowException. This can be replicated by running TestConstraintSolverStrategy::testScheduleLargeExecutorConstraintCount."
+STORM-3407,Storm 2.x ConstraintSolverStrategy failing on StackOverflow,"Customer running old (version < 2.x) topology fails ConstraintSolverStrategy.
+
+The 2.x _ConstraintSolverStrategy_ is using _topology.ras.constraint.max.state.search_, changed from _topology.ras.constraint.max.state.traversal_.
+
+For backward compatibility, support _topology.ras.constraint.max__.state.traversal_ for old topologies."
+STORM-3403,Incorrect Assigned memory displayed on Storm UI,"Hi Team,
+
+ 
+
+We are working on storm upgrade from 1.0.2 to 1.2.2. During upgrade, we realised that assigned memory displayed on Storm UI is incorrect. Attached screenshot for more details.
+
+ 
+
+Looks like assigned memory is sum of memory provided in topology.worker.childopts and topology.worker.logwriter.childopts options.
+
+ 
+
+Multiple scenarios we have observed where  assigned memory is not correct-
+ # If topology.worker.childopts memory is more than 3 GB, in this case assigned memory is showing 65 MB.
+
+
+ # If topology.worker.childopts memory+ topology.worker.logwriter.childopts memory is below 50 for last 2 digits.
+For eg.,
+topology.worker.childopts = 2048 MB
+topology.worker.logwriter.childopts = 64 MB
+Total = 2112 MB
+Here, last 2 digits are below 50, in this case assigned memory is showing 65 MB."
+STORM-3212,Trident Kafka Spout throws NPE if Translator Returns Null,"The Javadoc for the RecordTranslator#apply(ConsumerRecord) method says to return null to discard a ConsumerRecord. But doing that when using a Trident Kafka Spout causes the spout to throw a NullPointerException.
+
+ "
+STORM-3211,WindowedBoltExecutor NPE if wrapped bolt returns null from getComponentConfiguration,"{code}
+Exception in thread ""main"" java.lang.NullPointerException
+    at org.apache.storm.topology.WindowedBoltExecutor.declareOutputFields(WindowedBoltExecutor.java:309)
+    at org.apache.storm.topology.TopologyBuilder.getComponentCommon(TopologyBuilder.java:432)
+    at org.apache.storm.topology.TopologyBuilder.createTopology(TopologyBuilder.java:120)
+    at Main.main(Main.java:23)
+{code}"
+STORM-3173,flush metrics to ScheduledReporter on shutdown,"We lose shutdown related metrics that we should alert on at shutdown. We should flush metrics on a shutdown.
+
+https://github.com/apache/storm/blob/master/storm-server/src/main/java/org/apache/storm/daemon/nimbus/Nimbus.java#L4497"
+STORM-3132,NPE in Values Constructor,"Passing null argument to the `Values` Constructor can cause worker to crash.
+
+ 
+
+{code}2018-06-29 05:30:53.088 o.a.s.e.e.ReportError Thread-17-b-2-executor[8, 8] [ERROR] Error
+java.lang.RuntimeException: java.lang.RuntimeException: java.lang.NullPointerException
+    at org.apache.storm.utils.Utils$2.run(Utils.java:365) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at java.lang.Thread.run(Thread.java:748) [?:1.8.0_131]
+Caused by: java.lang.RuntimeException: java.lang.NullPointerException
+    at org.apache.storm.executor.Executor.accept(Executor.java:282) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.JCQueue.consumeImpl(JCQueue.java:133) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.JCQueue.consume(JCQueue.java:110) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:169) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:156) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.Utils$2.run(Utils.java:350) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    ... 1 more
+Caused by: java.lang.NullPointerException
+    at org.apache.storm.tuple.Values.&lt;init&gt;(Values.java:26) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.starter.trident.TridentWordCount$Split.execute(TridentWordCount.java:80) ~[stormjar.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.trident.planner.processor.EachProcessor.execute(EachProcessor.java:65) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.trident.planner.SubtopologyBolt$InitialReceiver.receive(SubtopologyBolt.java:227) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.trident.planner.SubtopologyBolt.execute(SubtopologyBolt.java:169) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.trident.topology.TridentBoltExecutor.execute(TridentBoltExecutor.java:247) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.bolt.BoltExecutor.tupleActionFn(BoltExecutor.java:232) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.Executor.accept(Executor.java:275) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.JCQueue.consumeImpl(JCQueue.java:133) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.JCQueue.consume(JCQueue.java:110) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:169) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.bolt.BoltExecutor$1.call(BoltExecutor.java:156) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.Utils$2.run(Utils.java:350) ~[storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    ... 1 more
+2018-06-29 05:30:53.116 o.a.s.u.Utils Thread-17-b-2-executor[8, 8] [ERROR] Halting process: Worker died
+java.lang.RuntimeException: Halting process: Worker died
+    at org.apache.storm.utils.Utils.exitProcess(Utils.java:470) [storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.utils.Utils$4.run(Utils.java:753) [storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at org.apache.storm.executor.error.ReportErrorAndDie.uncaughtException(ReportErrorAndDie.java:41) [storm-client-2.0.0-SNAPSHOT.jar:2.0.0-SNAPSHOT]
+    at java.lang.Thread.dispatchUncaughtException(Thread.java:1959) [?:1.8.0_131]\{code}"
+STORM-3075,NPE starting nimbus,"{code:java}
+2018-05-15 14:14:59.873 o.a.c.f.l.ListenerContainer main-EventThread [ERROR] Listener (org.apache.storm.zookeeper.Zookeeper$1@26d820eb) threw an exception
+java.lang.NullPointerException: null
+        at org.apache.storm.nimbus.LeaderListenerCallback.leaderCallBack(LeaderListenerCallback.java:118) ~[storm-server-2.0.0.y.jar:2.0.0.y]
+        at org.apache.storm.zookeeper.Zookeeper$1.isLeader(Zookeeper.java:124) ~[storm-server-2.0.0.y.jar:2.0.0.y]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch$9.apply(LeaderLatch.java:665) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch$9.apply(LeaderLatch.java:661) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.listen.ListenerContainer$1.run(ListenerContainer.java:93) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.curator.shaded.com.google.common.util.concurrent.MoreExecutors$DirectExecutor.execute(MoreExecutors.java:435) ~[curator-client-4.0.1.jar:?]
+        at org.apache.curator.framework.listen.ListenerContainer.forEach(ListenerContainer.java:85) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch.setLeadership(LeaderLatch.java:660) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch.checkLeadership(LeaderLatch.java:539) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch.access$700(LeaderLatch.java:65) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.recipes.leader.LeaderLatch$7.processResult(LeaderLatch.java:590) ~[curator-recipes-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.imps.CuratorFrameworkImpl.sendToBackgroundCallback(CuratorFrameworkImpl.java:865) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.imps.CuratorFrameworkImpl.processBackgroundOperation(CuratorFrameworkImpl.java:635) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.imps.WatcherRemovalFacade.processBackgroundOperation(WatcherRemovalFacade.java:152) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.curator.framework.imps.GetChildrenBuilderImpl$2.processResult(GetChildrenBuilderImpl.java:187) ~[curator-framework-4.0.1.jar:4.0.1]
+        at org.apache.zookeeper.ClientCnxn$EventThread.processEvent(ClientCnxn.java:590) ~[zookeeper-3.4.6.jar:3.4.6-1569965]
+        at org.apache.zookeeper.ClientCnxn$EventThread.run(ClientCnxn.java:498) ~[zookeeper-3.4.6.jar:3.4.6-1569965]
+
+{code}"
+STORM-3051,some  Potential NPEs ,"We have developed a static analysis tool [NPEDetector|https://github.com/lujiefsi/NPEDetector] to find some potential NPE. Our analysis shows that some callees may return null in corner case(e.g. node crash , IO exception), some of their callers have  _!=null_ check but some do not have. 
+
+*Bug:*
+
+1.  callee CgroupCenter#getSubSystems return null when meet exception:
+{code:java}
+} catch (Exception e) {
+LOG.error(""Get subSystems error {}"", e);
+}
+return null;
+{code}
+but its caller use it without check:
+{code:java}
+public boolean isSubSystemEnabled(SubSystemType subSystemType) {
+  Set<SubSystem> subSystems = this.getSubSystems();
+  for (SubSystem subSystem : subSystems) {
+     if (subSystem.getType() == subSystemType) {
+     return true;
+  }
+  }
+  return false;
+}{code}
+other callee and caller pair that have same problem.
+
+2. callee RAS_Node#getUsedSlots and caller RAS_Node#totalSlotsUsed
+ 3. CgroupCenter#getHierarchies and caller CgroupCenter#isMounted, CgroupCenter#getHierarchyWithSubSystems
+
+4. callee LocalState#getApprovedWorkers and caller BasicContainer#cleanUpForRestart,BasicContainer#<init>"
+STORM-3050,a potential NPE in ConstraintSolverStrategy#checkResourcesCorrect,"We have developed a static analysis tool [NPEDetector|https://github.com/lujiefsi/NPEDetector] to find some potential NPE. Our analysis shows that some callees may return null in corner case(e.g. node crash , IO exception), some of their callers have  _!=null_ check but some do not have. 
+
+*Bug:*
+
+callee TopologyDetails#getTotalCpuReqTask have two callers, one of them have null checker:
+{code:java}
+public double getTotalRequestedCpu() {
+double totalCpu = 0.0;
+for (ExecutorDetails exec : this.getExecutors()) {
+Double execCpu = getTotalCpuReqTask(exec);
+if (execCpu != null) {
+totalCpu += execCpu;
+}
+}
+return totalCpu;
+}
+{code}
+but ConstraintSolverStrategy#checkResourcesCorrect have no checker:
+{code:java}
+for (ExecutorDetails executor : entry.getValue()) {
+supervisorUsedCpu += topology.getTotalCpuReqTask(executor);
+}
+{code}
+ "
+STORM-3049,a potential NPE in SupervisorSimpleACLAuthorizer#permit SimpleACLAuthorizer#permit,"We have developed a static analysis tool [NPEDetector|https://github.com/lujiefsi/NPEDetector] to find some potential NPE. Our analysis shows that some callees may return null in corner case(e.g. node crash , IO exception), some of their callers have  _!=null_ check but some do not have. 
+
+*Bug:*
+
+callee ReqContext#principal have 12 callers, 10 of them have null checker like:
+{code:java}
+public boolean permit(ReqContext context, String operation, Map<String, Object> topoConf) {
+    return context.principal() != null ? users.contains(context.principal().getName()) : false;
+}
+{code}
+but SupervisorSimpleACLAuthorizer#permit  and SimpleACLAuthorizer#permit have no, just like:
+{code:java}
+//SupervisorSimpleACLAuthorizer#permit 
+String principal = context.principal().getName();{code}"
+STORM-3034,Log exception stacktrace for executor failures in worker,"Sometimes the Stacktrace is not available as part of the Exceptions generated by component.
+
+Adding stackTrace print to the logs would be helpful for users to identify exceptions"
+STORM-2513,NPE possible in getLeader call,"The getLeader call actually reads data from two different locations
+
+https://github.com/apache/storm/blob/v1.1.0/storm-core/src/clj/org/apache/storm/daemon/nimbus.clj#L2371-L2385
+
+One is /leader-lock and the other is /nimbuses.  There is a really rare possibility that these two can get out of sync when the leader crashes and we read from leader election saying it is still the leader, but after that it's entry is removed from ZK for /nimbuses.  So we either need to make them not be separate entries, or we need to add in some kind of a retry when this happens.
+
+Also NimbusClient has not retry built in.  Not all operations are idempotent, but we really should look at adding a retry with possibly switching to a new nimbus on idempotent operations."
+STORM-2444,Nimbus sometimes throws NPE when clicking show topology visualization button,"Here's error message from Nimbus (containing stack trace): 
+
+{code}
+{""error"":""Internal Server Error"",""errorMessage"":""java.lang.NullPointerException\n\tat org.apache.storm.stats.StatsUtil.mergeWithAddPair(StatsUtil.java:1997)\n\tat org.apache.storm.stats.StatsUtil.expandAveragesSeq(StatsUtil.java:2511)\n\tat org.apache.storm.stats.StatsUtil.aggregateAverages(StatsUtil.java:877)\n\tat org.apache.storm.stats.StatsUtil.aggregateBoltStats(StatsUtil.java:776)\n\tat org.apache.storm.stats.StatsUtil.boltStreamsStats(StatsUtil.java:942)\n\tat org.apache.storm.ui.core$visualization_data$iter__3002__3006$fn__3007.invoke(core.clj:239)\n\tat clojure.lang.LazySeq.sval(LazySeq.java:40)\n\tat clojure.lang.LazySeq.seq(LazySeq.java:49)\n\tat clojure.lang.Cons.next(Cons.java:39)\n\tat clojure.lang.RT.next(RT.java:674)\n\tat clojure.core$next__4112.invoke(core.clj:64)\n\tat clojure.core$dorun.invoke(core.clj:3010)\n\tat clojure.core$doall.invoke(core.clj:3025)\n\tat org.apache.storm.ui.core$visualization_data.invoke(core.clj:268)\n\tat org.apache.storm.ui.core$build_visualization.invoke(core.clj:591)\n\tat org.apache.storm.ui.core$fn__3641.invoke(core.clj:1204)\n\tat org.apache.storm.shade.compojure.core$make_route$fn__324.invoke(core.clj:100)\n\tat org.apache.storm.shade.compojure.core$if_route$fn__312.invoke(core.clj:46)\n\tat org.apache.storm.shade.compojure.core$if_method$fn__305.invoke(core.clj:31)\n\tat org.apache.storm.shade.compojure.core$routing$fn__330.invoke(core.clj:113)\n\tat clojure.core$some.invoke(core.clj:2570)\n\tat org.apache.storm.shade.compojure.core$routing.doInvoke(core.clj:113)\n\tat clojure.lang.RestFn.applyTo(RestFn.java:139)\n\tat clojure.core$apply.invoke(core.clj:632)\n\tat org.apache.storm.shade.compojure.core$routes$fn__334.invoke(core.clj:118)\n\tat org.apache.storm.shade.ring.middleware.json$wrap_json_params$fn__1383.invoke(json.clj:56)\n\tat org.apache.storm.shade.ring.middleware.multipart_params$wrap_multipart_params$fn__918.invoke(multipart_params.clj:118)\n\tat org.apache.storm.shade.ring.middleware.reload$wrap_reload$fn__747.invoke(reload.clj:22)\n\tat org.apache.storm.ui.helpers$requests_middleware$fn__2903.invoke(helpers.clj:54)\n\tat org.apache.storm.ui.core$catch_errors$fn__3813.invoke(core.clj:1462)\n\tat org.apache.storm.shade.ring.middleware.keyword_params$wrap_keyword_params$fn__2632.invoke(keyword_params.clj:35)\n\tat org.apache.storm.shade.ring.middleware.nested_params$wrap_nested_params$fn__2675.invoke(nested_params.clj:84)\n\tat org.apache.storm.shade.ring.middleware.params$wrap_params$fn__2604.invoke(params.clj:64)\n\tat org.apache.storm.shade.ring.middleware.multipart_params$wrap_multipart_params$fn__918.invoke(multipart_params.clj:118)\n\tat org.apache.storm.shade.ring.middleware.flash$wrap_flash$fn__2890.invoke(flash.clj:35)\n\tat org.apache.storm.shade.ring.middleware.session$wrap_session$fn__2876.invoke(session.clj:98)\n\tat org.apache.storm.shade.ring.util.servlet$make_service_method$fn__2498.invoke(servlet.clj:127)\n\tat org.apache.storm.shade.ring.util.servlet$servlet$fn__2502.invoke(servlet.clj:136)\n\tat org.apache.storm.shade.ring.util.servlet.proxy$javax.servlet.http.HttpServlet$ff19274a.service(Unknown Source)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHolder.handle(ServletHolder.java:654)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHandler$CachedChain.doFilter(ServletHandler.java:1320)\n\tat org.apache.storm.logging.filters.AccessLoggingFilter.handle(AccessLoggingFilter.java:47)\n\tat org.apache.storm.logging.filters.AccessLoggingFilter.doFilter(AccessLoggingFilter.java:39)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHandler$CachedChain.doFilter(ServletHandler.java:1291)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlets.CrossOriginFilter.handle(CrossOriginFilter.java:247)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlets.CrossOriginFilter.doFilter(CrossOriginFilter.java:210)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHandler$CachedChain.doFilter(ServletHandler.java:1291)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHandler.doHandle(ServletHandler.java:443)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.handler.ContextHandler.doHandle(ContextHandler.java:1044)\n\tat org.apache.storm.shade.org.eclipse.jetty.servlet.ServletHandler.doScope(ServletHandler.java:372)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.handler.ContextHandler.doScope(ContextHandler.java:978)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.handler.ScopedHandler.handle(ScopedHandler.java:135)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.handler.HandlerWrapper.handle(HandlerWrapper.java:116)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.Server.handle(Server.java:369)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.AbstractHttpConnection.handleRequest(AbstractHttpConnection.java:486)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.AbstractHttpConnection.headerComplete(AbstractHttpConnection.java:933)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.AbstractHttpConnection$RequestHandler.headerComplete(AbstractHttpConnection.java:995)\n\tat org.apache.storm.shade.org.eclipse.jetty.http.HttpParser.parseNext(HttpParser.java:644)\n\tat org.apache.storm.shade.org.eclipse.jetty.http.HttpParser.parseAvailable(HttpParser.java:235)\n\tat org.apache.storm.shade.org.eclipse.jetty.server.AsyncHttpConnection.handle(AsyncHttpConnection.java:82)\n\tat org.apache.storm.shade.org.eclipse.jetty.io.nio.SelectChannelEndPoint.handle(SelectChannelEndPoint.java:668)\n\tat org.apache.storm.shade.org.eclipse.jetty.io.nio.SelectChannelEndPoint$1.run(SelectChannelEndPoint.java:52)\n\tat org.apache.storm.shade.org.eclipse.jetty.util.thread.QueuedThreadPool.runJob(QueuedThreadPool.java:608)\n\tat org.apache.storm.shade.org.eclipse.jetty.util.thread.QueuedThreadPool$3.run(QueuedThreadPool.java:543)\n\tat java.lang.Thread.run(Thread.java:745)\n""}
+{code}"
+STORM-2430,Potential Race condition in Kafka Spout,"Kafka spout hangs when the number of uncommitted messages exceeds the max allowed uncommitted messages and some intermediate tuples have failed in down stream bolt.
+
+Steps of reproduction.
+Create a simple topology with one kafka spout and a slow bolt. 
+In kafka spout set the maximum uncommitted messages to a small number like 100.
+Bolt should process 10 tuples in second. And program it to fail on some random tuples. For eg: say tuple number 10 fails. Also assume  there is only 1 Kafka partition the spout reads from.
+
+Spout on first execution of nextTuple() gets 110 records and emits them. At this point number of uncommitted message would be 110.
+First 9 tuples are acked by the bolt. 10th tuple is failed by the bolt. KafkaSpout puts it on retry queue.
+Tuple number 11 to 110 are acked by bolt . But spout only commits till offset 9.[link | https://github.com/apache/storm/blob/1.0.x-branch/external/storm-kafka-client/src/main/java/org/apache/storm/kafka/spout/KafkaSpout.java#L510]
+
+Now, the number of uncommitted  messages = 110 - 9 = 101 > 100 (max allowed uncommitted messages)
+No new records are polled from kafka.[link | https://github.com/apache/storm/blob/1.0.x-branch/external/storm-kafka-client/src/main/java/org/apache/storm/kafka/spout/KafkaSpout.java#L239]. The spout is stuck as the nothing is polled. 
+
+Solution is to explicitly go through retry queue explicitly and emit tuples that are ready on every nextTuple().
+"
+STORM-2356,Storm-HDFS: NPE on empty & stale lock file,"In HDFSSpout a NPE can occur if a stale lock file is empty.
+
+{{LogEntry.deserialize}} tries to split the line by colons.
+If the line is null, the split will cause a NPE:
+https://github.com/apache/storm/blob/master/external/storm-hdfs/src/main/java/org/apache/storm/hdfs/spout/FileLock.java#L179
+
+Moreover the callee of {{getLastEntry}} is also mishandling empty log files.
+The {{lastEntry.eventTime}} could also cause a NPE if the above scenario is passed and the log file is empty:
+https://github.com/apache/storm/blob/master/external/storm-hdfs/src/main/java/org/apache/storm/hdfs/spout/FileLock.java#L149-L160"
+STORM-2312,Memory Management,"Refer to this Doc for details
+
+https://docs.google.com/document/d/1a-RLv1KKBn2vVliztLcdfC-5vDStxpNlR0ZLu33lwxg/edit?usp=sharing"
+STORM-2218,When using Block Compression in the SequenceFileBolt some Tuples may be acked before the data is flushed to HDFS,"In AbstractHDFSBolt, the tuples are being acked after calling syncAllWriters(), that basically ends up calling doSync() in every writer. In the case of the SequenceFileWriter, that is the same as calling the hsync() method of SequenceFile.Writer:
+
+https://github.com/apache/storm/blob/master/external/storm-hdfs/src/main/java/org/apache/storm/hdfs/common/SequenceFileWriter.java#L52
+
+The problem in the case of the block compression is that if there is a compression block opened it is not flushed with hsync(), instead it is necessary to call the sync() method, that adds a sync marker, compresses the block and writes it to the output stream that is flushed with hsync(). This is also done automatically when a certain size is reached in the compression block, but we cannot have certainty of the data being flushed until we call sync() and then hsync():
+
+https://github.com/apache/hadoop/blob/trunk/hadoop-common-project/hadoop-common/src/main/java/org/apache/hadoop/io/SequenceFile.java#L1549
+
+The easy fix is just add a call to sync() in case the writer is using Block Compression. I'm concerned about the impact that would have in the block size, but I think it is the only way of writing the data reliably in this case."
+STORM-2199,Module enabling storm to write memory mapped files,"Add module to write from storm to memory-mapped files.
+    # Support multiple file formats 
+    # Support multiple file rotation and sync policy implementation
+    
+
+
+"
+STORM-2027,Possible Race Condition issue in SlidingWindow,"The function SlotBasedCounter#incrementCount() presents a bug. If 2 concurrent threads want to update the same counter, the result is different from the expected.
+"
+STORM-1984,Race during rebalance,"We have been seeing an issue with a storm cluster getting into a restart loop because of bad topology state saved in ZK.
+
+On startup, we are seeing a rebalance timer being set with a time value of nil.
+
+This rebalance was called during a startup state transition here..
+
+https://github.com/apache/storm/blob/master/storm-core/src/clj/org/apache/storm/daemon/nimbus.clj#L330-L336
+
+The problem is that topology-action-options is nil in storm-base.  
+
+(I added a temporary debug print)
+
+2016-07-19 14:41:56.604 b.s.d.nimbus [INFO] In state-transitions #backtype.storm.daemon.common.StormBase{:storm-name ""test1"", :launch-time-secs 1468879726, :status {:type :rebalancing}, :num-workers 3, :component->executors {""__system"" 0, ""__acker"" 3, ""exclaim2"" 2, ""exclaim1"" 3, ""word"" 10}, :owner ""hadoopqa"", :topology-action-options nil, :prev-status {:type :active}}
+
+If nimbus happens to crash during the rebalancing state, before the scheduler can reschedule the topology and then return it back to active or inactive, but after storm-base was set to nil here....
+
+https://github.com/apache/storm/blob/master/storm-core/src/clj/org/apache/storm/daemon/nimbus.clj#L292-L299
+
+Then we get into a state where nimbus will crash repeatedly if supervised on startup.
+
+We should remove the set of topology options to nil in do-rebalance, and / or ignore the rebalance on startup if the delay can't be read."
+STORM-1775,Generate StormParserImpl before maven building instead of in packaging time,"Just like genthrift.sh genrates the generated thrift-about java source files. I think it is better generate StormParserImpl.java before maven execution.
+
+It can reduce the complexity of storm-sql."
+STORM-1760,HiveState should retire idle or old writes with flushAndClose,
+STORM-1509,RAS Implementation does not show memory and cpu utilization,"Ran a default ResourceAwareSchedulerExampleTopology with config
+scheduler.display.resource set to true. It does not show the adequate cpu and resource utilization"
+STORM-1293,port  backtype.storm.messaging.netty-integration-test to java,Integration tests for netty messaging layer
+STORM-1224,ShellBolt only increases memory usage when subprocess doesn't send ack / fail,"In order to handle ack / fail easily, ShellBolt stores generated id and tuple to Map, and remove it when subprocess passes ack or fail to that id.
+
+In other word, if users doesn't let subprocess pass ack or fail, _input Map only increases and never decreases. It would make memory issue when each tuple is big or there're a lot of tuples flowing."
+STORM-1107,Remove deprecated Config STORM_MESSAGING_NETTY_MAX_RETRIES and fix Netty Client backoff calculations,"Since Netty Client should not limit retry attempts, we should not use deprecated STORM_MESSAGING_NETTY_MAX_RETRIES configuration for  backoff calculation "
+STORM-1089,Add tool for recording and playback of storm traces,"We currently report information about latency and throughput of tuples flowing through storm. It would really be nice to have a tool that can gather this information over a period of time, anonymizes it if needed, and records it to a file.
+
+Then have another tool that will replay that data so we can test how changes to storm would impact a given topology or set of topologies.
+
+It would be great if we could capture the entire cluster, And potentially add in more details around CPU, memory, Network, tuple size, etc as we are able to gather more information."
+STORM-1006,Storm is not garbage collecting the messages (causing memory hit),"We are reading whole file in memory around 5 MB, which is send through Kafaka to Storm. In next bolt, we performs the operation on file and sends out tuple to next bolt. After profiling we found that file (bytes of file) does not get garbage collected. So after further investigation we found that  backtype.storm.coordination.CoordinatedBolt.CoordinatedOutputCollector.emit(String, Collection<Tuple>, List<Object>) API gets the first object and use it for tracking :(. Can you confirm reason behind this? Is there any way we can send different unique id as first element in list or the unique id of tuple used as indicator.
+
+However, for time being we have made changes in schema assigned to KafkaSpout, so that it will parse the file and send out list of values.
+
+If you below code CoordinatedBolt, ""Object id = tuple.getValue(0);” takes the 1st element from tuple instead of taking id of tuple. This ""id"" is then saved to _tracked hashhMap(TimeCache). In our case the 0th element is files byte data. This gets stored in the _tracked map till tree of tuple doesn’t get complete. As we are processing huge data we run outofMemory issue.
+
+Code:
+
+public void execute(Tuple tuple) {
+
+        *Object id = tuple.getValue(0);*
+
+        TrackingInfo track;
+
+        TupleType type = getTupleType(tuple);
+
+        synchronized(_tracked) {
+
+            track = _tracked.get(id);
+
+            if(track==null) {
+
+                track = new TrackingInfo();
+
+                if(_idStreamSpec==null) track.receivedId = true;
+
+                _tracked.put(id, track);*
+
+            }
+
+        }
+
+
+
+        if(type==TupleType.ID) {
+
+            synchronized(_tracked) {
+
+                track.receivedId = true;
+
+            }
+
+            checkFinishId(tuple, type);
+
+        } else if(type==TupleType.COORD) {
+
+            int count = (Integer) tuple.getValue(1);
+
+            synchronized(_tracked) {
+
+                track.reportCount++;
+
+                track.expectedTupleCount+=count;
+
+            }
+
+            checkFinishId(tuple, type);
+
+        } else {
+
+            synchronized(_tracked) {
+
+                _delegate.execute(tuple);
+
+            }
+
+        }
+
+    }
+
+
+"
+STORM-970,UT messaging_test.clj#test-receiver-message-order build failed ,"the CI always build error recently and the failure looks really spurious
+Then I build the tests locally and find : 
+
+{code}
+➜  storm git:(master) dev-tools/test-ns.py backtype.storm.messaging-test
+...
+[main] INFO  b.s.u.Utils - Using defaults.yaml from resources
+Running backtype.storm.messaging-test
+Tests run: 2, Passed: 2, Failures: 0, Errors: 1    (!!!Error occurred but travis-ci does not push this info out)
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time: 39.593 s
+[INFO] Finished at: 2015-08-05T15:20:26+08:00
+[INFO] Final Memory: 27M/205M
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal com.theoryinpractise:clojure-maven-plugin:1.7.1:test (test-clojure) on project storm-core: Clojure failed. -> [Help 1]
+org.apache.maven.lifecycle.LifecycleExecutionException: Failed to execute goal com.theoryinpractise:clojure-maven-plugin:1.7.1:test (test-clojure) on project storm-core: Clojure failed.
+        at org.apache.maven.lifecycle.internal.MojoExecutor.execute(MojoExecutor.java:216)
+        at org.apache.maven.lifecycle.internal.MojoExecutor.execute(MojoExecutor.java:153)
+        at org.apache.maven.lifecycle.internal.MojoExecutor.execute(MojoExecutor.java:145)
+        at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject(LifecycleModuleBuilder.java:116)
+        at org.apache.maven.lifecycle.internal.LifecycleModuleBuilder.buildProject(LifecycleModuleBuilder.java:80)
+        at org.apache.maven.lifecycle.internal.builder.singlethreaded.SingleThreadedBuilder.build(SingleThreadedBuilder.java:51)
+        at org.apache.maven.lifecycle.internal.LifecycleStarter.execute(LifecycleStarter.java:128)
+        at org.apache.maven.DefaultMaven.doExecute(DefaultMaven.java:307)
+        at org.apache.maven.DefaultMaven.doExecute(DefaultMaven.java:193)
+        at org.apache.maven.DefaultMaven.execute(DefaultMaven.java:106)
+        at org.apache.maven.cli.MavenCli.execute(MavenCli.java:862)
+        at org.apache.maven.cli.MavenCli.doMain(MavenCli.java:286)
+        at org.apache.maven.cli.MavenCli.main(MavenCli.java:197)
+        at sun.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+        at sun.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:57)
+        at sun.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+        at java.lang.reflect.Method.invoke(Method.java:606)
+        at org.codehaus.plexus.classworlds.launcher.Launcher.launchEnhanced(Launcher.java:289)
+        at org.codehaus.plexus.classworlds.launcher.Launcher.launch(Launcher.java:229)
+        at org.codehaus.plexus.classworlds.launcher.Launcher.mainWithExitCode(Launcher.java:415)
+        at org.codehaus.plexus.classworlds.launcher.Launcher.main(Launcher.java:356)
+Caused by: org.apache.maven.plugin.MojoExecutionException: Clojure failed.
+        at com.theoryinpractise.clojure.AbstractClojureCompilerMojo.callClojureWith(AbstractClojureCompilerMojo.java:464)
+        at com.theoryinpractise.clojure.AbstractClojureCompilerMojo.callClojureWith(AbstractClojureCompilerMojo.java:366)
+        at com.theoryinpractise.clojure.ClojureRunTestWithJUnitMojo.execute(ClojureRunTestWithJUnitMojo.java:138)
+        at org.apache.maven.plugin.DefaultBuildPluginManager.executeMojo(DefaultBuildPluginManager.java:134)
+        at org.apache.maven.lifecycle.internal.MojoExecutor.execute(MojoExecutor.java:208)
+        ... 20 more
+{code}
+
+Seems like something went wrong of UT
+{code}
+ messaging_test.clj#test-receiver-message-order 
+{code}
+https://github.com/apache/storm/blob/master/storm-core/test/clj/backtype/storm/messaging_test.clj#L85"
+STORM-919,Gathering worker and supervisor process information (CPU/Memory),"It would be useful to have supervisor and worker process related information such as %cpu utilization, JVM memory and network bandwidth available to NIMBUS which would be useful for resource aware scheduler implementation later on. As a beginning, the information can be piggybacked on the existing heartbeats into the ZK or to the pacemaker as required. 
+Related JIRAs
+STORM-177
+STORM-891
+STORM-899
+"
+STORM-899,CPU/Memory/Network metrics collection,"There are many use cases where it would be great to know how much memory/cpu/network a particular bolt/spout is using, and how much of that network is being used to send data to specific bolt instances downstream.
+
+This can be used to improve the scheduling of a topology, and also to provide automatic elasticity to a topology.
+
+Collecting these metrics is not too difficult, but being able to get them on a per bolt.spout basis is difficult.  Perhaps STORM-891 will make it simple for us to support this.
+
+These metrics should flow back to nimbus."
+STORM-858,nimbus start failed due to ThriftServer startup NPE,"When I run storm with master, I got NPE when nimbus start in ThriftServer
+```
+5213 [main] ERROR b.s.s.a.ThriftServer - ThriftServer is being stopped due to: java.lang.NullPointerException
+java.lang.NullPointerException
+        at backtype.storm.security.auth.AuthUtils.get(AuthUtils.java:271) ~[storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.security.auth.kerberos.KerberosSaslTransportPlugin.getServerTransportFactory(KerberosSaslTransportPlugin.java:77) ~[storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.security.auth.SaslTransportPlugin.getServer(SaslTransportPlugin.java:71) ~[storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.security.auth.ThriftServer.serve(ThriftServer.java:70) [storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.daemon.nimbus$launch_server_BANG_.invoke(nimbus.clj:1370) [storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.daemon.nimbus$_launch.invoke(nimbus.clj:1394) [storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at backtype.storm.daemon.nimbus$_main.invoke(nimbus.clj:1417) [storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+        at clojure.lang.AFn.applyToHelper(AFn.java:152) [clojure-1.6.0.jar:?]
+        at clojure.lang.AFn.applyTo(AFn.java:144) [clojure-1.6.0.jar:?]
+        at backtype.storm.daemon.nimbus.main(Unknown Source) [storm-core-0.11.0-SNAPSHOT.jar:0.11.0-SNAPSHOT]
+```
+After add some debug log, I found that in AuthUtils::getConfiguration, It get ""java.security.auth.login.config"" from storm_conf, but there is never someone had put ""java.security.auth.login.config"" to storm_config,(https://github.com/apache/storm/blob/master/storm-core/src/jvm/backtype/storm/security/auth/AuthUtils.java#L55), and then login_conf will always be null, so (https://github.com/apache/storm/blob/master/storm-core/src/jvm/backtype/storm/security/auth/kerberos/KerberosSaslTransportPlugin.java#L77) will got NPE;
+"
+STORM-781,Trident Docs: javadoc MemoryMapState,MemoryMapState is what everyone reads to try and understand how states work.  we should have really good javadocs and comments describing how it works so when devs look at it they quickly understand what it is doing and why.
+STORM-738,Multilang needs Overflow-Control mechanism and HeartBeat timeout problem,"hi, all
+
+we have a topology, which have 3 components(spout->parser->saver) and the parser is Multilang bolt with python. We do not use ACK mechanism.
+
+we found 2 problems with Mutilang python script.
+1) the parser python scripts may hold too many tuples and consume too many memory;
+2) with MultiLang heartbeat mechanism described by  https://issues.apache.org/jira/browse/STORM-513, the python script always timeout to heartbeat, even when the parser bolt is normal, cause supervisor to restart itself.
+
+!storm_multilang.png!
+
+ShellBolt process === Father-Process
+PythonScript process === Child-Process
+
+The reason is :
+1) when topology do not use ACK mechanism, the spout do not have Overflow-control ability, if the stream have too many tuples comes,  spout will send all the tuples to parser's ShellBolt process(Father-Process);
+2) parser's ShellBolt process just put the tuples to _pendingWrites queue, if the _pendingWrites queue does not have limit;
+3) parser's PythonScript process(Child-Process) call readMsg() to read a tuple from STDIN, handle the tuple, and emit a new tuple to its father process through STDOUT, and then call readTaskIds() from STDIN.  Because Father-Process's queue already have too many other tuples, Child-Process will read all the tuples to pending_commands, util received TaskIds.
+4) so Child-Process process's pending_commands may contains too many tuples and consume too many memory.
+
+As to heartbeat, because there are too many pending_commands need Child-Process to handle, and Child-Process's every emit operation will need more I/O read operations from STDIN. It may need 10 seconds to handle one tuple, and this will cause the heartbeat tuple not handle quickly, and timeout will happen.
+
+Even if Father-Process's _pendingWrites have limits, for example 1000, Child-Process may needs 1000 x 1000 read operations then it can handle the heartbeat tuple.
+
+[~revans2] [~kabhwan] this related to Multilang and heartbeat, please help to confirm the two problems.
+
+I think Father-Process and Child-Process need Overflow-Control Protocol to control the python script's memory usage.
+And heartbeat tuple needs a separate queue(pending_heartbeats), and Child-Process handle heartbeat tuple at high priority. [~kabhwan] wish to hear your opinion.
+"
+STORM-736,Add a RESTful API to  print all of the thread's information and stack traces of Nimbus/Supervisor/Worker Process,
+STORM-662,java.lang.OutOfMemoryError: Direct buffer memory ,"I'm using Storm 0.9.3 and facing this error in running topology.
+
+Below is our custom configuration but it's pretty small.
+
+supervisor.slots.ports:
+    - 6700
+worker.childopts:
+    -Xmx4g -Xms4g
+    -server -Djava.net.preferIPv4Stack=true
+topology.worker.shared.thread.pool.size: 512
+storm.messaging.netty.max_retries: 100
+
+Feb 08, 2015 5:17:05 PM org.apache.storm.netty.channel.socket.nio.AbstractNioSelector WARNING: Unexpected exception in the selector loop. java.lang.OutOfMemoryError: Direct buffer memory at java.nio.Bits.reserveMemory(Bits.java:658) at java.nio.DirectByteBuffer.<init>(DirectByteBuffer.java:123) at java.nio.ByteBuffer.allocateDirect(ByteBuffer.java:306) at org.apache.storm.netty.channel.socket.nio.SocketReceiveBufferAllocator.newBuffer(SocketReceiveBufferAllocator.java:64) at org.apache.storm.netty.channel.socket.nio.SocketReceiveBufferAllocator.get(SocketReceiveBufferAllocator.java:44) at org.apache.storm.netty.channel.socket.nio.NioWorker.read(NioWorker.java:62) at org.apache.storm.netty.channel.socket.nio.AbstractNioWorker.process(AbstractNioWorker.java:108) at org.apache.storm.netty.channel.socket.nio.AbstractNioSelector.run(AbstractNioSelector.java:318) at org.apache.storm.netty.channel.socket.nio.AbstractNioWorker.run(AbstractNioWorker.java:89) at org.apache.storm.netty.channel.socket.nio.NioWorker.run(NioWorker.java:178) at org.apache.storm.netty.util.ThreadRenamingRunnable.run(ThreadRenamingRunnable.java:108) at org.apache.storm.netty.util.internal.DeadLockProofWorker$1.run(DeadLockProofWorker.java:42) at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1145) at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:615) at java.lang.Thread.run(Thread.java:745)"
+STORM-628,Storm-HBase add support to WriteBuffer/setAutoFlush,"The default value for ""autoflush"" in HTable is true. We should support our user to enable HBase writebuffer on the client side, by add a new configuration ""storm.hbase.table.autoflush"".
+
+ "
+STORM-510,Netty messaging client blocks transfer thread on reconnect,"The latest netty client code will attempt to reestablish the connection on failure as part of the send method call.  It will block until the connection is established or a timeout happens, by default this is about 30 seconds, which is also the default tuple timeout.  
+
+This is exacerbated by the read lock that is held during the send, that prevents the node->socket mapping from changing while we are sending.  This is mostly so that we don't close connections while we are trying to write to them, which would cause an exception.  But this makes it so if there are multiple workers on a node that all get rescheduled we will wait the full 30 seconds to timeout for each worker.
+
+send must be non-blocking in the current design of the worker, or it will prevent other messages from being delivered, and is likely to cause many many messages to timeout on a reschedule."
+STORM-470,DisruptorQueue catch blocks do not capture stack trace,"The catch blocks for many of the Exceptions in the DisruptorQueue.java file do not extract the stack trace for debugging with the result being that errors cannot readily be diagnosed. The stack trace output should become part of the subsequent Runtime exception text such that it can be used in the diagnosis of problems. As it is now, all that a person gets is the error message which depends highly on the quality of the error text that the code author wrote for the class that raised the error. In many cases, this can be poor."
+STORM-440,NimbusClient throws NPE if Config.STORM_THRIFT_TRANSPORT_PLUGIN is not set,"We just upgraded from 0.8.2 to 0.9.2 and noticed that when constructing a NimbusClient if Config.STORM_THRIFT_TRANSPORT_PLUGIN is not specified then AuthUtils[1] throws a NPE.
+
+[1] - https://github.com/bbaugher/incubator-storm/blob/master/storm-core/src/jvm/backtype/storm/security/auth/AuthUtils.java#L73-L74"
+STORM-339,Severe memory leak to OOM when ackers disabled,"Without any ackers enabled, fast component  will continuously leak memory and causing OOM problems when target component is slow. The OOM problem can be reproduced by running this fast-slow-topology:
+
+https://github.com/Gvain/storm-perf-test/tree/fast-slow-topology
+
+with command:
+
+{code}
+$ storm jar storm_perf_test-1.0.0-SNAPSHOT-jar-with-dependencies.jar com.yahoo.storm.perftest.Main --spout 1 --bolt 1 --workers 2 --testTime 600 --messageSize 6400
+{code}
+
+And the worker childopts with {{-Xms2g -Xmx2g -Xmn512m ...}}.
+
+At the same time, the executed count of target component is far behind from the emitted count of source component.  I guess it could be that netty client is buffering too much messages in its message_queue as target component sends back OK/Failure Response too slowly. "
+STORM-135,Tracer bullets,"https://github.com/nathanmarz/storm/issues/146
+
+Debugging the flow of tuples through a Storm topology can be pretty tedious. One might have to do lots of logging and watch many log files, or do other kinds of instrumentation. It would be great to include a system to select certain tuples for tracing, and track the progress of those tuples through the topology.
+
+Here is a use case:
+
+Suppose one were to do stats aggregation using Storm. Some things I might want to ensure are:
+Is the aggregation and flush happening in a timely way?
+Are there hotspots?
+Are there unexpected latencies? Are some bolts taking a long time?
+To answer the above questions, I might select a random sample of tuples, or maybe a random sample of a specific subset of tuples. The tuples to be traced could be tagged with a special attribute.
+
+I would want to track the following events:
+
+Spout emit - send (task id, spout name, timestamp)
+For each bolt:
+When a traced tuple arrives and execute() is called: (task id, bolt name, timestamp)
+When a tuple is emitted that is anchored on the tuple that arrived: (task id, bolt name, timestamp)
+Here is what I can do with the data from above (assuming one can correlate tuples emitted with incoming tuples, based on the anchor):
+
+For the aggregation bolt, I can look at the distribution of (emit timestamp - incoming timestamp) and see if it makes sense.
+I can graph the life of one tuple, look at spout/bolt vs timestamp graph, and visually see how much time is being spent in each bolt, as well as how much time is spent in the Storm infrastructure / ZMQ.
+This data can be overlayed for multiple tuples to get a sense of the timing distribution for the topology.
+Using the task ID information, one can do a cool overlay graph that traces the distribution of a number of tuples over a topology. One can use that to see if field groupings are working, are unevenly distributed, etc.
+For now I may start implementing this idea in scala-storm DSL.
+
+----------
+tdunning: I actually think that, if possible, unanchored tuples should also be traced.
+
+One simple implementation would be to add some information to each tuple to indicate the tracing status of the tuple.
+
+As each tuple arrives, the tracing status would be inspected. If set, a tracing wrapper for the collector would be used in place of the actual collector for that tuple. This would make tracing of all resulting tuples possible, not just the anchored tuples.
+
+It would also be very useful to have a traceMessage() method on the collector that could be used by the bolt to record a trace message if tracing is on.
+
+It would also make sense to have a method that turns tracing on or off for a collector. This might need to return a new tracing collector in order to allow collectors to be immutable.
+
+The tracing information that I see would be useful includes:
+
+a) possibly a trace level similar to the logging level used by log4j and other logging packages
+
+b) a trace id so that multiple traces can be simultaneously active. This could be generated when tracing is turned on. It would be nice to have a provision to provide an external id that could be correlated to outside entities like a user-id.
+
+----------
+velvia: +1 for adding tracing level to the tuple metadata.
+
+Nathan or others:
+
+I think this ticket should be split up into a couple parts:
+1) A generic callback or hook mechanism for when tuples are emitted and when they arrive via execute() in bolts.
+
+2) A specific callback for filtering and implementing tracer bullets
+3) Additional metadata in the Tuple class to track tracing, and changes to allow it to be serialized
+
+Should this be split up into multiple issues?
+
+Also pointers to where in the code the three could be implemented would be awesome.
+
+Thanks!
+Evan
+
+----------
+tdunning: With JIRA, sub-tasks would be a great idea. With Github's very basic issue tracker, probably not so much.
+
+----------
+nathanmarz: FYI, I've added hooks into Storm for 0.7.1
+
+----------
+tdunning: Can you provide a pointer or three to where the hooks are?
+
+----------
+nathanmarz: I explained it here: #153 (comment)
+
+I'll have a wiki page about hooks once the feature is released.
+
+----------
+mrflip: @thedatachef has implemented this. We'd like guidance on the implementation choices made; you'll see the pull request shortly.
+
+We targeted Trident, not Storm. It's our primary use case, and we want to see values at each operation boundary (not each bolter); meanwhile hooks seem to give good-enough support for Storm.
+Trident Tuples have methods to set, unset and test if the tuple is traceable.
+They become labeled as traceable with an assembly, which you can put in anywhere in the topology. We have have one such that makes every nth tuple traceable.
+All descendants of a traceable tuple are traceable. The framework doesn't ever unlabel things, even if a tuple is prolific -- it's easy enough to thin the herd with an assembly.
+When the collector emits a tuple, if the tuple is traceable it
+anoints the new tuple as traceable
+records the current step in the trace history -- a tracer bullet carries the history of every stage it's passed through.
+writes an illustration of the trace history to the progress log. Since only a fraction of tuples are expected to be traceable, we feel efficiency is less important that this be structured, verbose and readable.
+We don't do anything to preserve traceability across an aggregation, mostly because we don't know what to uniformly do in that case."
+STORM-112,Race condition between Topology Kill and Worker Timeout can crash supervisor,"Recently during testing on a single node cluster we saw a supervisor crash when a topology was killed. The supervisor came back up and recovered, so it was not that big of a deal, but when we dug into it, it appears that there is a race.
+https://github.com/nathanmarz/storm/issues/656
+
+When a topology is killed the local assignments are reset, and then stormconf.ser is deleted right away. But at the same time sync-process may already be running with old state indicating that a worker timed out and needs to be relaunched. launch-worker then tries to read in the topology conf which was deleted and crashes.
+
+The following is a sanitized version of the supervisor log that shows this happening.
+https://gist.github.com/revans2/6282830"
+STORM-94,Extend QueryFunction API to support paging based queries,"https://github.com/nathanmarz/storm/issues/553
+
+Suppose some state holder supports paging or some sort of bulk iteration of its query results. In the current solution the QueryFunction must get all of the results for the input tuples before pushing the results further in the topology. It would be preferable to use some sort of PagedQueryFunction API which will push the pages further into the topology as they are fetched, page by page."
+STORM-80,NPE caused by TridentBoltExecutor reusing TrackedBatches between batch groups,"https://github.com/nathanmarz/storm/issues/421
+
+I'm seeing intermittent errors caused by SubtopologyBolt.execute being called with a BatchInfo whose ProcessorContext is set up for a different Batch Group. In particular I'm seeing null pointer exceptions from PartitionPersistProcessor because its state fields were never set up correctly.
+
+The best I can tell the id key (IBatchID) being used for the _batches map in TridentBoltExecutor is not unique between batch groups. As a result the tracked batch will have been initialized for a different Batch Group and set of processors.
+
+I hoped to be able to track down the source of this issue but can't determine where the BatchIDs are being added to the tuples.
+
+If it matters, my topology has two streams each reading from their own OpaqueTransactionalKafka spout w/different topics.
+
+Backtrace:
+
+65108 [Thread-25] ERROR backtype.storm.daemon.executor - 
+java.lang.RuntimeException: java.lang.NullPointerException
+        at backtype.storm.utils.DisruptorQueue.consumeBatchToCursor(DisruptorQueue.java:87) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.utils.DisruptorQueue.consumeBatchWhenAvailable(DisruptorQueue.java:58) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.disruptor$consume_batch_when_available.invoke(disruptor.clj:62) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.daemon.executor$fn__3551$fn__3563$fn__3610.invoke(executor.clj:712) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.util$async_loop$fn__436.invoke(util.clj:377) ~[storm-0.9.0-wip4.jar:na]
+        at clojure.lang.AFn.run(AFn.java:24) [clojure-1.4.0.jar:na]
+        at java.lang.Thread.run(Thread.java:722) [na:1.7.0_09]
+Caused by: java.lang.NullPointerException: null
+        at storm.trident.planner.processor.PartitionPersistProcessor.execute(PartitionPersistProcessor.java:59) ~[storm-0.9.0-wip4.jar:na]
+        at storm.trident.planner.SubtopologyBolt$InitialReceiver.receive(SubtopologyBolt.java:189) ~[storm-0.9.0-wip4.jar:na]
+        at storm.trident.planner.SubtopologyBolt.execute(SubtopologyBolt.java:129) ~[storm-0.9.0-wip4.jar:na]
+        at storm.trident.topology.TridentBoltExecutor.execute(TridentBoltExecutor.java:352) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.daemon.executor$fn__3551$tuple_action_fn__3553.invoke(executor.clj:607) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.daemon.executor$mk_task_receiver$fn__3474.invoke(executor.clj:379) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.disruptor$clojure_handler$reify__3011.onEvent(disruptor.clj:43) ~[storm-0.9.0-wip4.jar:na]
+        at backtype.storm.utils.DisruptorQueue.consumeBatchToCursor(DisruptorQueue.java:84) ~[storm-0.9.0-wip4.jar:na]
+        ... 6 common frames omitted
+
+Also, I'm only seeing this in LocalCluster mode, not in production."
+STORM-46,Allow scheduler to configure memory per worker,"https://github.com/nathanmarz/storm/issues/272
+
+Useful if different workers have different memory needs."
+STORM-36,partitionPersist that can take as input multiple streams with differing schemas,"https://github.com/nathanmarz/storm/issues/369
+
+Each stream may do different actions to the State object.
+
+-----------------------------------------------------------------------------------------------------
+quintona: I think this would solve an issue I am having, let me explain the use case. I essentially have a single spout emitting links. The content of the link is then downloaded and analyzed. Various parallel logical streams are then derived, some relatively static compared to the others. What I mean by that is some state is log living, well beyond the batch, like the number of links. This is state increments with each tuple within and across batches. At the same time the actual main stream is deriving measures at the batch level, and these 2 figures need to be combined into a single expression later. The approach I was using was to persist the long running count using the persistentAggregate, then I was intending to use a statequery to derive a stream off that state and merge that into main stream. I could therefore have a single function receiving a batch level count, and a running total across time which it needs in order to do its calculation.
+
+The only other approach I can think of to achieve this (given that I can't merge the streams suggested above, and I have no means of joining), is to have multiple streams effect a single state as you suggest here, or a periodic DRPC approach.
+
+If this the sort of thing you were trying to solve here?
+
+Here is potentially one approach? https://gist.github.com/quintona/5558787"
