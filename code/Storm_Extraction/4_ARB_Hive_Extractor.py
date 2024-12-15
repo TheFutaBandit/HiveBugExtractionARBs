@@ -1,9 +1,9 @@
 import pandas as pd
 
 # Variables for file paths and column names
-file1_path = 'datasets/bug_id_file_mapping.csv'  # Change this
-file2_path = 'datasets/Hive_metrics.csv'  # Change this
-output_path = 'datasets/final_Hive.csv'  # Path for the output file
+file1_path = 'dataset_storm/bug_id_file_mapping.csv'  # Change this
+file2_path = 'dataset_storm/storm_metric.csv'  # Change this
+output_path = 'dataset_storm/final_storm.csv'  # Path for the output file
 
 bug_file_column = 'File_Name'  # Column name for File_Name in the first CSV
 name_file_column = 'Name'  # Column name for Name in the second CSV

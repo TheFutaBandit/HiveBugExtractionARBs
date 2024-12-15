@@ -27,8 +27,8 @@ def search_algorithm(input_file, output_file):
 
     aging_related_bugs.to_csv(output_file, index=False)
 
-input_file = 'datasets/HIVE_closed.csv'
-output_file = 'datasets/HIVE_ARBIssues.csv'
+input_file = 'dataset_storm/storm_closed.csv'
+output_file = 'dataset_storm/storm_ARBIssues.csv'
 
 
 search_algorithm(input_file,output_file)

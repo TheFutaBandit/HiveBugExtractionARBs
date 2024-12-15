@@ -1,4 +1,29 @@
 Bug_ID,Bug_Summary,Bug_Description
+STORM-4131,Update log4j2 to a non-borked version,"Log4j2 2.24.1 has a serious issue that was fixed in 2.24.2: https://github.com/apache/logging-log4j2/issues/3143
+
+We should upgrade.
+
+"
+STORM-4130,commons cli 1.9.0,
+STORM-4129,Hikari 6.2.0,
+STORM-4128,"Deprecate ""storm-hive""","as discussed on the list
+
+ 
+
+Hive support will be dropped in the near future (most likely 2.8.0)"
+STORM-4127,Netty 4.1.115.Final ,
+STORM-4126,Kryo 5.6.2,
+STORM-4125,clojure.logging.tools 1.3.0,
+STORM-4124,Bouncycastle 1.79,
+STORM-4123,Hikari 6.1.0,
+STORM-4122,commons-exec 1.4.0,
+STORM-4121,commons-csv:1.12.0,
+STORM-4120,gson 2.11.0,
+STORM-4119,commons-codec 1.17.1,
+STORM-4118,commons-text 1.12.0,
+STORM-4117,Snappy 1.1.10.7,
+STORM-4115,Hive 4.0.1,"The Apache Hive Community has voted to declare the 3.x release line as End of Life (EOL). This means no further updates or releases will be made for this series.
+We urge all Hive 3.x users to upgrade to the latest versions promptly to benefit from new features and ongoing support."
 STORM-4114,jline 2.14.6,
 STORM-4113,commons-lang3 3.17.0,
 STORM-4112,Jetty 11.0.24,
@@ -56,10 +81,40 @@ STORM-4086,Bump com.fasterxml.jackson:jackson-bom from 2.17.2 to 2.18.1,"Jackson
 * https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.17.3
 * https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.18
 * https://github.com/FasterXML/jackson/wiki/Jackson-Release-2.18.1"
+STORM-4085,Supervisor Threads being Killed,"The AsyncLocalizer class contains a scheduler that continuously performs downloadOrUpdate operations on blobs. Currently, if an exception occurs during this update process, the exception is not properly handled, causing the thread to terminate.
+As a result, workers are unable to update blobs because the threads have been killed. The only way to recover from this is by restarting the supervisor."
 STORM-4084,Commons Compress 1.27.1,
 STORM-4083,Jetty 11.0.23,
 STORM-4082,Prometheus Client 1.3.1,
 STORM-4081,Dropwizard Metrics 4.2.27,
+STORM-4077,Worker being reassigned when Nimbus leadership changes,"Hey guys, I'm using Storm v2.6.1 and every time I restart the nimbus leader (currently I have 3 for high availability) the workers get reassigned and this is a bad behaviour as every topology will have no workers running for a certain period(until new workers are assigned) due to a Nimbus leadership change.
+
+Update:
+
+Essentially, by using the modTime as the version, we have found that, while using the {{{}LocalFsBlobStoreFile{}}}, everytime the the Nimbus leader goes down the following occurs:
+ # Nimbus (1) leader goes down and a new Nimbus (2) picks up the leadership.
+ # If blobs in Nimbus (2) have a different modTime workers are restarted (even though they might be the same).
+ # Nimbus (1) comes back up, syncs the blobs in the startup and updates the modTime, as it downloads the blobs again.
+ # If Nimbus (2) leader goes down, all the workers will be restarted again as Nimbus (1) has new modTime again.
+ # This can be repeated endless as the modTime will always be different in each Nimbus leader.
+
+We suggest a new method that obtains the file version:
+{code:java}
+public abstract class BlobStoreFile {
+    public abstract long getModTime() throws IOException;
+
+    public long getVersion() throws IOException {
+        return getModTime();
+    }
+}{code}
+And defaults to the current approach if not implemented and the version of the file would be something in the lines:
+{code:java}
+public long getVersion() throws IOException {
+    byte[] bytes = DigestUtils.sha1(new FileInputStream(path));
+    return Arrays.hashCode(bytes);
+} {code}
+
+Soon, I'll open the PR and link it here."
 STORM-4076,KafkaTridentSpoutEmitters can poll all partitions at once instead of one at a time,"{{Currently 'KafkaTridentTransactionalSpoutEmitter' and 'KafkaTridentOpaqueEmitter' polls every partition assigned to the spout one by one while emitting new batches. }}
 
 {{But this can be improved by leveraging Kafka Consumer's usual polling strategy. That is Kafka Broker will take care of choosing the right partition.}}
@@ -370,6 +425,15 @@ This is not a bug in Storm, of course. Nor is it a bug - more a 'minimum require
 
 So I have a pull request to suggest workarounds for this in the Troubleshooting guide."
 STORM-4038,Cleanup Hadoop Dependencies,hadoop pulls in a lot of stuff we do not actually need. might be good to prune / exclude
+STORM-4031,Fix broken Talks & Video Webpage,"External content seems to be blocked now:
+
+ 
+
+[https://storm.apache.org/talksAndVideos.html]
+
+ 
+
+We should either host those stuff ourselves or just link it."
 STORM-4030,Dependency upgrades,"{code:java}
 mvn versions:display-dependency-updates ""-Dmaven.version.ignore=.*-M.*,.*-alpha.*,.*-beta.*,.*-BETA.*,.*-b.*,.*.ALPHA.*"" | grep '\->' | sort | uniq{code}
 {{shows a large number of upgradable dependencies.}}"
