@@ -1,35 +1,32 @@
 import pandas as pd
 
 # Variables for file paths and column names
-bug_file_path = 'dataset_storm/bug_id_file_mapping.csv'  # Path to the file containing Bug_ID and File_Name
-name_file_path = 'dataset_storm/storm_metrics.csv'  # Path to the file containing the Name column
-output_file_path = 'dataset_storm/ARB_storm_Metric.csv'  # Path for the output file
+file1_path = 'datasets/bug_id_file_mapping.csv'  # Change this
+file2_path = 'datasets/Hive_metrics.csv'  # Change this
+output_path = 'datasets/final_Hive.csv'  # Path for the output file
 
 bug_file_column = 'File_Name'  # Column name for File_Name in the first CSV
 name_file_column = 'Name'  # Column name for Name in the second CSV
 
-# Load the first CSV with columns [Bug_ID, File_Name]
-bug_file = pd.read_csv(bug_file_path)
+# Read the CSV files
+file1 = pd.read_csv(file1_path)
+file2 = pd.read_csv(file2_path)
 
-# Load the second CSV that contains the column 'Name'
-name_file = pd.read_csv(name_file_path)
+# Extract file names from the 'File_Name' column in File 1
+file1['Extracted_File_Name'] = file1['File_Name'].str.extract(r'([^/]+\.java)$')
 
-# Extract actual file names from 'File_Name' (after the last '/')
-bug_file['Extracted_File_Name'] = bug_file[bug_file_column].apply(lambda x: x.split('/')[-1])
+# Create a new column 'Match' in File 2 with default value 'No'
+file2['Match'] = 'No'
 
-# Extract actual names from 'Name' (after the last '.')
-name_file['Extracted_Name'] = name_file[name_file_column].apply(lambda x: x.split('.')[-1])
+# Check for matches and update the 'Match' column in File 2
+file2.loc[file2['Name'].isin(file1['Extracted_File_Name']), 'Match'] = 'Yes'
 
-# Create a set of unique extracted file names for matching
-bug_names_set = set(bug_file['Extracted_File_Name'])
+# Count the number of 'Yes' matches
+yes_count = file2['Match'].value_counts().get('Yes', 0)
 
-# Create a new column 'Matched' in the name_file which is 'Yes' if there's a match, otherwise 'No'
-name_file['Matched'] = name_file['Extracted_Name'].apply(lambda x: 'Yes' if x in bug_names_set else 'No')
+# Save the result to a new CSV file
+file2.to_csv(output_path, index=False)
 
-# Drop the helper 'Extracted_Name' column
-name_file.drop(columns=['Extracted_Name'], inplace=True)
-
-# Save the modified DataFrame to a new CSV
-name_file.to_csv(output_file_path, index=False)
-
-print(f"Output file with matched column has been saved as '{output_file_path}'")
+# Print the number of matches
+print(f"Updated file saved to {output_path}")
+print(f"Number of matches (Yes): {yes_count}")
